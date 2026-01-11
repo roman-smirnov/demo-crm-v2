@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-crm
+  labels:
+    app: demo-crm
+spec:
+  type: LoadBalancer
+  selector:
+    app: demo-crm
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000

@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-init
+  labels:
+    app: mongodb
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: mongo:6.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: root-username
+            - name: MONGO_ROOT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: root-password
+            - name: MONGO_APP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: app-username
+            - name: MONGO_APP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-credentials
+                  key: app-password
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              PRIMARY_HOST="mongodb-0.mongodb:27017"
+              SECONDARY_HOST="mongodb-1.mongodb:27017"
+
+              echo "Waiting for MongoDB to accept connections..."
+              until mongosh --host "$PRIMARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; do
+                sleep 5
+              done
+
+              echo "Waiting for second pod..."
+              until mongosh --host "$SECONDARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; do
+                sleep 5
+              done
+
+              if ! mongosh --host "$PRIMARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --eval 'rs.status().ok' >/dev/null 2>&1; then
+                echo "Initializing replica set..."
+                mongosh --host "$PRIMARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb-0.mongodb:27017"},{_id:1,host:"mongodb-1.mongodb:27017"}]})'
+              else
+                echo "Replica set already initialized."
+              fi
+
+              echo "Waiting for primary..."
+              until mongosh --host "$PRIMARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --quiet --eval 'db.hello().isWritablePrimary ? "true" : "false"' | grep -q true; do
+                sleep 5
+              done
+
+              echo "Creating app user if missing..."
+              mongosh --host "$PRIMARY_HOST" -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASS" --authenticationDatabase admin --eval 'db=db.getSiblingDB("demo-crm"); if (db.getUser("'"$MONGO_APP_USER"'")==null) { db.createUser({user:"'"$MONGO_APP_USER"'", pwd:"'"$MONGO_APP_PASS"'", roles:[{role:"readWrite",db:"demo-crm"}]}) } else { print("user exists") }'
