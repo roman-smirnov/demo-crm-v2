@@ -21,7 +21,14 @@ echo "Using kube context: $(kubectl config current-context)"
 kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/service.yaml" --ignore-not-found
 kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/deployment.yaml" --ignore-not-found
 kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/configmap.yaml" --ignore-not-found
+kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/ingress.yaml" --ignore-not-found
+kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/clusterissuer.yaml" --ignore-not-found
+helm uninstall cert-manager -n cert-manager --ignore-not-found
+
+kubectl delete namespace cert-manager --ignore-not-found
+
 helm uninstall "${MONGODB_RELEASE_NAME}" --ignore-not-found
+
 kubectl delete statefulset \
   -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" \
   -l "app.kubernetes.io/name=mongodb" \

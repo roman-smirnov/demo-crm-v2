@@ -4,6 +4,7 @@ replicaCount: 2
 # empty password will be sorted as a secret by k8s
 auth:
   enabled: true
+  existingSecret: demo-mongo-auth
   username: demo_crm_user
   database: demo_crm
 
