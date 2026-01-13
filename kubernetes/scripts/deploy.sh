@@ -178,13 +178,26 @@ confirm_dns() {
 }
 
 ensure_cert_manager() {
+  local dep_deployment="${APP_RELEASE_NAME}-cert-manager"
+
+  if kubectl get deployment "${dep_deployment}" -n "${APP_NAMESPACE}" >/dev/null 2>&1; then
+    log "cert-manager already installed via chart dependency; skipping external install."
+    return
+  fi
+
   if ! kubectl get deployment cert-manager -n cert-manager >/dev/null 2>&1; then
     kubectl create namespace cert-manager >/dev/null 2>&1 || true
     helm repo add jetstack https://charts.jetstack.io
     helm repo update
-    helm install cert-manager jetstack/cert-manager \
-      --namespace cert-manager \
-      --set installCRDs=true
+
+    local -a install_args=(--namespace cert-manager)
+    if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
+      install_args+=(--set installCRDs=false --set crds.enabled=false)
+    else
+      install_args+=(--set installCRDs=true)
+    fi
+
+    helm upgrade --install cert-manager jetstack/cert-manager "${install_args[@]}"
     kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
   fi
 }

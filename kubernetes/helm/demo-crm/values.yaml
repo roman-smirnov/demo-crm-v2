@@ -60,10 +60,16 @@ mongodb:
         cpu: 200m
         memory: 512Mi
 
-certManager:
+cert-manager:
   enabled: false
-  installCRDs: true
+  installCRDs: false
+  crds:
+    enabled: false
+    keep: true
 
+certManagerCrdsHook:
+  enabled: true
+  weight: "-10"
 nginxIngress:
   enabled: false
 

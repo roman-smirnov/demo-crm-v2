@@ -1,3 +1,5 @@
+![Topology](TOPOLOGY_GENERATED.jpg)
+
 # Kubernetes Deployment (demo-crm)
 
 This repo deploys:
@@ -129,7 +131,7 @@ kubectl create secret generic demo-crm-mongodb-uri \
 ```
 
 ### 3) Deploy the app
-If you enable chart dependencies (`mongodb.enabled`, `certManager.enabled`, `nginxIngress.enabled`)
+If you enable chart dependencies (`mongodb.enabled`, `cert-manager.enabled`, `nginxIngress.enabled`)
 or the `charts/` directory is empty, run `helm dependency build kubernetes/helm/demo-crm`
 or add `--dependency-update` to the install command.
 
@@ -148,7 +150,7 @@ kubectl get pods -l app=demo-crm -n <app-namespace> -o wide
 
 ### 4) cert-manager / TLS
 If you are not using the script, install cert-manager and enable the ClusterIssuer.
-Skip the install step if you set `certManager.enabled=true` in the app chart.
+Skip the install step if you set `cert-manager.enabled=true` in the app chart.
 ```bash
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
@@ -164,6 +166,20 @@ helm upgrade --install demo-crm kubernetes/helm/demo-crm \
   -n <app-namespace> \
   --set clusterIssuer.enabled=true
 ```
+
+#### cert-manager CRD hooks (chart dependency)
+When `cert-manager.enabled=true`, the chart installs cert-manager CRDs using a pre-install hook
+(`kubernetes/helm/demo-crm/templates/cert-manager-crds-hook.yaml`) so CRDs exist before
+ClusterIssuer and other custom resources.
+
+Differences vs cert-manager built-in CRD management (`crds.enabled` / `installCRDs`):
+- Hook resources are not tracked in the release, so Helm will not upgrade or uninstall them.
+- CRDs are pinned to the chart's packaged cert-manager version; update the hook file when bumping the dependency.
+- Built-in CRD management keeps CRDs in the release or `crds/` directory and can apply updates on `helm upgrade`.
+- If CRDs already exist in the cluster, the hook can fail; disable it with `certManagerCrdsHook.enabled=false`.
+
+To use cert-manager's built-in CRD install instead:
+- Set `certManagerCrdsHook.enabled=false` and `cert-manager.crds.enabled=true` (or `cert-manager.installCRDs=true`).
 
 ### 5) Access the application
 If you are using Ingress, use the Ingress hostname once DNS is set:
