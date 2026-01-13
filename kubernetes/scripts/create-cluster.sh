@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CLUSTER_NAME=${1:-my-cluster}
-LOCATION=${2:-europe-north1-b}
+LOCATION=${2:-europe-north1-c}
 NUM_NODES=${3:-2}
 MACHINE_TYPE=${4:-n2-standard-2}
 DISK_SIZE=${5:-50}

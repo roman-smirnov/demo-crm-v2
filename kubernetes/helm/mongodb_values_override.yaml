@@ -1,0 +1,29 @@
+architecture: replicaset
+replicaCount: 2
+
+# empty password will be sorted as a secret by k8s
+auth:
+  enabled: true
+  username: demo_crm_user
+  database: demo_crm
+
+persistence:
+  enabled: true
+  size: 8Gi
+
+resources:
+  requests:
+    cpu: 80m
+    memory: 512Mi
+  limits:
+    cpu: 400m
+    memory: 768Mi
+
+arbiter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi

@@ -1,14 +1,16 @@
 # Kubernetes App Deployment Instructions
 
 This repo deploys:
-- `demo-crm` (Next.js app) as a Deployment + LoadBalancer Service
-- MongoDB as a StatefulSet (required by the current app Deployment, because it expects `MONGODB_URI` from a Secret)
+- `demo-crm` (Next.js app) as a Deployment + Service (ClusterIP when exposing via Ingress)
+- MongoDB via the `bitnami/mongodb` Helm chart
+- Optional NGINX Ingress Controller via Helm
 
-All manifests are under `./kubernetes/manifests/`. Helper scripts live under `./kubernetes/scripts/`.
+All manifests are under `./kubernetes/manifests/`. Helm values live under `./kubernetes/helm/`. Helper scripts live under `./kubernetes/scripts/`.
 
 ## Prerequisites
 - A running Kubernetes cluster (GKE or any other)
 - `kubectl` configured to talk to the cluster
+- `helm` installed
 - (GKE only) `gcloud` if you use the helper scripts
 
 Verify access:
@@ -17,139 +19,80 @@ kubectl get nodes
 ```
 
 ## Quick start (script)
-If you prefer a single command, use the deployment script. It expects:
-- `creds/mongo-keyfile` (replica set keyfile)
-- `creds/mongo.env` (local env file with `MONGO_*` values and `MONGODB_URI`)
+Fill in the MongoDB auth + connection files:
+- `kubernetes/helm/mongodb_values.yaml` (base values)
+- `kubernetes/helm/mongodb_values_override.yaml` (overrides; sets `auth.existingSecret: demo-mongo-auth`)
+- `creds/mongodb_auth.env` (Bitnami auth keys)
+- `creds/mongo.env` (`MONGODB_URI`)
 
-Run from the repo root:
+Then run:
 ```bash
 ./kubernetes/scripts/deploy.sh
-```
-
-Optional flags:
-```bash
-RUN_INIT_JOB=0 ./kubernetes/scripts/deploy.sh
-WAIT_TIMEOUT=600s ./kubernetes/scripts/deploy.sh
 ```
 
 If you want to run the steps manually, follow the sections below.
 
 ## Tear down (script)
-Remove the app and MongoDB resources:
+Remove the app resources:
 ```bash
 ./kubernetes/scripts/tear_down.sh
 ```
 
-Remove Secrets too:
+Remove the app Secret too:
 ```bash
 DELETE_SECRETS=1 ./kubernetes/scripts/tear_down.sh
 ```
 
-## 1) Create required Secrets (MongoDB + app connection)
-The app Deployment reads `MONGODB_URI` from a Secret named `mongo-credentials`.
-MongoDB also expects:
-- `mongo-credentials` with `root-username` and `root-password`
-- `mongo-keyfile` Secret (replica set keyfile)
+## 1) Install MongoDB with Helm
+Create or update `kubernetes/helm/mongodb_values.yaml` and `kubernetes/helm/mongodb_values_override.yaml`. Ensure the combined values configure:
+- 2 replicas
+- persistence enabled
+- authentication enabled with `auth.existingSecret: demo-mongo-auth`
 
-From the repo root:
-
-### 1.1 Create the Mongo keyfile Secret
+Create `creds/mongodb_auth.env` (example keys):
 ```bash
-kubectl create secret generic mongo-keyfile \
-  --from-file=keyfile=./creds/mongo-keyfile
+mongodb-root-password=change-me-root
+mongodb-passwords=change-me-app
+mongodb-replica-set-key=change-me-repl
 ```
 
-### 1.2 Option A: Use a local env file (recommended)
-Create `creds/mongo.env` (example values):
+Create the Secret:
 ```bash
-MONGO_ROOT_USER=admin
-MONGO_ROOT_PASS=change-me
-MONGO_APP_USER=demo_crm
-MONGO_APP_PASS=change-me
-MONGODB_URI="mongodb://demo_crm:change-me@mongodb-0.mongodb:27017,mongodb-1.mongodb:27017/demo-crm?authSource=demo-crm&replicaSet=rs0"
-```
-
-Then create the Secret from it:
-```bash
-set -a
-. creds/mongo.env
-set +a
-
-kubectl create secret generic mongo-credentials \
-  --from-literal=root-username="$MONGO_ROOT_USER" \
-  --from-literal=root-password="$MONGO_ROOT_PASS" \
-  --from-literal=app-username="$MONGO_APP_USER" \
-  --from-literal=app-password="$MONGO_APP_PASS" \
-  --from-literal=MONGODB_URI="$MONGODB_URI" \
+kubectl create secret generic demo-mongo-auth \
+  --from-env-file=creds/mongodb_auth.env \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
-If you use this, you can skip 1.3 and 1.4.
 
-### 1.3 Option B: Create MongoDB credentials Secret
-Choose a root username/password and create the Secret:
+Install the chart (default namespace, release name `demo-mongo`):
 ```bash
-export MONGO_ROOT_USER="root"
-export MONGO_ROOT_PASS="change-me"
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
 
-kubectl create secret generic mongo-credentials \
-  --from-literal=root-username="$MONGO_ROOT_USER" \
-  --from-literal=root-password="$MONGO_ROOT_PASS"
+helm install demo-mongo bitnami/mongodb \
+  -f kubernetes/helm/mongodb_values.yaml \
+  -f kubernetes/helm/mongodb_values_override.yaml
 ```
 
-If you plan to run the init job, add app credentials as well:
+Find service/pod DNS names to build your connection string:
 ```bash
-kubectl patch secret mongo-credentials \
-  -p='{"stringData":{"app-username":"demo_crm","app-password":"change-me"}}'
+kubectl get svc | rg demo-mongo
+kubectl get pods | rg demo-mongo
 ```
 
-### 1.4 Add `MONGODB_URI` to the same Secret (required by the app)
-After MongoDB is deployed, the pod DNS names will be stable. For this StatefulSet:
-- `mongodb-0.mongodb`
-- `mongodb-1.mongodb`
+## 2) Create the MONGODB_URI Secret
+The app reads `MONGODB_URI` from a Secret named `demo-crm-mongodb-uri`.
 
-Create the URI and store it in the Secret (root user example):
+Edit `creds/mongo.env` (single line):
 ```bash
-export MONGODB_URI="mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASS}@mongodb-0.mongodb:27017,mongodb-1.mongodb:27017/demo-crm?authSource=admin&replicaSet=rs0"
-
-kubectl patch secret mongo-credentials \
-  -p='{"stringData":{"MONGODB_URI":"'"$MONGODB_URI"'"}}'
+MONGODB_URI="mongodb://<user>:<pass>@<host1>,<host2>/demo-crm?authSource=<auth-db>&replicaSet=<rs-name>"
 ```
 
-If you are using the app user, swap the user/pass and set `authSource=demo-crm`.
-
-Confirm the keys exist:
+Create or update the Secret:
 ```bash
-kubectl get secret mongo-credentials -o jsonpath='{.data}' && echo
+kubectl create secret generic demo-crm-mongodb-uri \
+  --from-env-file=creds/mongo.env \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
-
-## 2) Deploy MongoDB (StatefulSet)
-Apply the MongoDB Service and StatefulSet:
-```bash
-kubectl apply -f kubernetes/manifests/mongodb/service.yaml
-kubectl apply -f kubernetes/manifests/mongodb/statefulset.yaml
-```
-
-Wait for MongoDB to be ready:
-```bash
-kubectl rollout status statefulset/mongodb
-kubectl get pods -l app=mongodb -o wide
-```
-
-### 2.1 Initialize replica set + app user (Job)
-Apply the init Job (safe to re-run):
-```bash
-kubectl apply -f kubernetes/manifests/mongodb/init-job.yaml
-kubectl wait --for=condition=complete job/mongodb-init --timeout=300s
-kubectl logs job/mongodb-init
-```
-
-You can delete the Job after it completes:
-```bash
-kubectl delete -f kubernetes/manifests/mongodb/init-job.yaml
-```
-
-This requires `app-username` and `app-password` in the `mongo-credentials` Secret. If you are not creating an app user, skip this step and use root credentials in `MONGODB_URI`.
-
 
 ## 3) Deploy the demo-crm application
 Apply ConfigMap, Deployment, and Service:
@@ -165,16 +108,97 @@ kubectl rollout status deployment/demo-crm
 kubectl get pods -l app=demo-crm -o wide
 ```
 
-## 4) Access the application
-Get the external IP created by the LoadBalancer Service:
+## 4) Ingress (optional, recommended for this task)
+The app Service should be `ClusterIP` (see `kubernetes/manifests/app/service.yaml`).
+
+Install the F5 NGINX Ingress Controller in its own namespace and set its
+IngressClass as the default so you can omit `ingressClassName` in app Ingresses:
+```bash
+kubectl create namespace nginx-ingress
+
+helm repo add nginx-stable https://helm.nginx.com/stable
+helm repo update
+
+helm install nginx-ingress nginx-stable/nginx-ingress -n nginx-ingress \
+  --set controller.ingressClass.name=nginx \
+  --set controller.ingressClass.create=true \
+  --set controller.ingressClass.setAsDefaultIngress=true
+```
+
+If you do not set the default IngressClass, add `spec.ingressClassName: nginx`
+to `kubernetes/manifests/app/ingress.yaml`.
+
+Confirm the default IngressClass:
+```bash
+kubectl get ingressclass
+```
+
+Note: The F5 NGINX Ingress Controller uses `nginx.org/*` annotations (not
+`nginx.ingress.kubernetes.io/*`).
+
+Create the app Ingress (replace `demo-crm.example.com` in
+`kubernetes/manifests/app/ingress.yaml` with your hostname):
+```bash
+kubectl apply -f kubernetes/manifests/app/ingress.yaml
+```
+
+Get the Ingress Controller external address and point your DNS A record (or AWS
+CNAME) at it:
+```bash
+kubectl get svc -n nginx-ingress
+```
+
+## 5) SSL termination (bonus: Let's Encrypt via cert-manager)
+cert-manager is the Helm chart used to automate Let's Encrypt certificates.
+Install cert-manager via Helm (includes CRDs):
+```bash
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+
+kubectl create namespace cert-manager
+
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --set installCRDs=true
+```
+
+Wait for cert-manager and confirm CRDs:
+```bash
+kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
+kubectl get crds | rg cert-manager
+```
+
+Create the ClusterIssuer (edit the email in
+`kubernetes/manifests/app/clusterissuer.yaml` first):
+```bash
+kubectl apply -f kubernetes/manifests/app/clusterissuer.yaml
+```
+
+Ensure your DNS record points at the Ingress controller before requesting the certificate.
+
+Re-apply the Ingress to request the certificate:
+```bash
+kubectl apply -f kubernetes/manifests/app/ingress.yaml
+```
+
+Check certificate status:
+```bash
+kubectl get certificate
+kubectl describe certificate demo-crm-tls
+```
+
+## 6) Access the application
+If you are using Ingress, use the Ingress hostname once DNS is set:
+```bash
+kubectl get ingress demo-crm
+```
+
+If the Service is still a LoadBalancer, use the external IP:
 ```bash
 kubectl get svc demo-crm
 ```
 
-Open the `EXTERNAL-IP` in a browser (HTTP). Example:
-- `http://<EXTERNAL-IP>/`
-
-## 5) Quick troubleshooting commands
+## 7) Quick troubleshooting commands
 
 ### App not starting / CrashLoopBackOff
 ```bash
@@ -184,8 +208,9 @@ kubectl logs -l app=demo-crm --tail=200
 
 ### Mongo connectivity issues
 ```bash
-kubectl logs -l app=mongodb --tail=200
-kubectl describe pod -l app=mongodb
+kubectl get pods | rg demo-mongo
+kubectl logs <mongo-pod> --tail=200
+kubectl describe pod <mongo-pod>
 ```
 
 ### Verify config injected
@@ -193,23 +218,38 @@ kubectl describe pod -l app=mongodb
 kubectl exec -it deploy/demo-crm -- printenv | egrep 'MONGODB_URI|PERSISTENCE|LOG_LEVEL'
 ```
 
-## 6) Cleanup (optional)
+## 8) Cleanup (optional)
 
 Remove app resources:
 ```bash
+kubectl delete -f kubernetes/manifests/app/ingress.yaml
 kubectl delete -f kubernetes/manifests/app/service.yaml
 kubectl delete -f kubernetes/manifests/app/deployment.yaml
 kubectl delete -f kubernetes/manifests/app/configmap.yaml
+kubectl delete -f kubernetes/manifests/app/clusterissuer.yaml
 ```
 
-Remove Mongo resources:
+Remove MongoDB Helm release:
 ```bash
-kubectl delete -f kubernetes/manifests/mongodb/init-job.yaml
-kubectl delete -f kubernetes/manifests/mongodb/statefulset.yaml
-kubectl delete -f kubernetes/manifests/mongodb/service.yaml
+helm uninstall demo-mongo
 ```
 
-Remove Secrets:
+Remove MongoDB auth Secret:
 ```bash
-kubectl delete secret mongo-credentials mongo-keyfile
+kubectl delete secret demo-mongo-auth
+```
+
+Remove Ingress controller (if installed):
+```bash
+helm uninstall nginx-ingress -n nginx-ingress
+```
+
+Remove cert-manager (if installed):
+```bash
+helm uninstall cert-manager -n cert-manager
+```
+
+Remove app Secret:
+```bash
+kubectl delete secret demo-crm-mongodb-uri
 ```

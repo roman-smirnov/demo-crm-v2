@@ -5,7 +5,7 @@ metadata:
   labels:
     app: demo-crm
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: demo-crm
   ports:
