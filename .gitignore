@@ -38,3 +38,8 @@ yarn.lock
 package-lock.json
 
 /creds/
+
+# helm
+/kubernetes/helm/**/charts/
+/kubernetes/helm/**/charts/*.tgz
+/kubernetes/helm/**/charts/*.prov

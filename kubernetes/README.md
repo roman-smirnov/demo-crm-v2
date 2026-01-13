@@ -1,12 +1,13 @@
 # Kubernetes Deployment (demo-crm)
 
 This repo deploys:
-- `demo-crm` (Next.js app) as a Deployment + Service (ClusterIP)
-- MongoDB via the `bitnami/mongodb` Helm chart (replicaset)
-- Ingress + cert-manager for TLS (optional but wired into the manifests and `deploy.sh`)
+- `demo-crm` (Next.js app) via the Helm chart in `kubernetes/helm/demo-crm`
+- MongoDB via the `bitnami/mongodb` Helm chart (standalone by default, or as a chart dependency)
+- Optional dependency charts: cert-manager and NGINX Ingress Controller (F5), disabled by default
+- Ingress + cert-manager for TLS (optional, wired into the chart and `deploy.sh`)
 
 Paths:
-- `kubernetes/manifests/app/`: app manifests + ClusterIssuer
+- `kubernetes/helm/demo-crm/`: app Helm chart + values
 - `kubernetes/helm/`: MongoDB Helm values overrides
 - `kubernetes/scripts/`: deploy and teardown helpers
 - `creds/`: .env files used to create Secrets
@@ -16,9 +17,11 @@ Paths:
 - `kubectl` configured to talk to the cluster
 - `helm` installed
 - An ingress controller with an `ingressClassName` of `nginx` if you plan to use Ingress
+- `deploy.sh` runs `helm dependency build` automatically. For manual installs with dependencies
+  enabled, run `helm dependency build kubernetes/helm/demo-crm` or add `--dependency-update`.
 - Update these before you deploy:
-  - `kubernetes/manifests/app/ingress.yaml` (host + TLS secret name)
-  - `kubernetes/manifests/app/clusterissuer.yaml` (email)
+  - `kubernetes/helm/demo-crm/values.yaml` (ingress host/TLS + clusterIssuer email)
+  - Optional: create `kubernetes/helm/demo-crm/values_override.yaml` for local overrides
 
 Verify access:
 ```bash
@@ -42,12 +45,12 @@ MONGODB_URI=mongodb://<user>:<pass>@<host1>,<host2>/demo_crm?authSource=demo_crm
 
 Secrets created:
 - `demo-mongo-auth` in `${MONGODB_NAMESPACE}` (used by the Helm chart)
-- `demo-crm-mongodb-uri` in `${APP_NAMESPACE}` (used by the app Deployment)
+- `demo-crm-mongodb-uri` in `${APP_NAMESPACE}` (used by the app chart)
 
 ## Quick start (script)
-1. Update `kubernetes/manifests/app/ingress.yaml` and `kubernetes/manifests/app/clusterissuer.yaml`.
+1. Update `kubernetes/helm/demo-crm/values.yaml` (or create `kubernetes/helm/demo-crm/values_override.yaml`).
 2. Fill `creds/mongodb_auth.env` and `creds/mongo.env`.
-3. Ensure an ingress controller exists (if you are using Ingress).
+3. Ensure an ingress controller exists (unless you enable `nginxIngress.enabled` in the chart).
 4. Run:
 ```bash
 ./kubernetes/scripts/deploy.sh
@@ -61,6 +64,11 @@ DNS_CONFIRM=y ./kubernetes/scripts/deploy.sh
 Optional overrides (defaults shown):
 ```bash
 APP_NAMESPACE=default \
+APP_RELEASE_NAME=demo-crm \
+APP_RESOURCE_NAME=demo-crm \
+APP_CHART_PATH=kubernetes/helm/demo-crm \
+APP_VALUES_FILE= \
+APP_VALUES_OVERRIDE_FILE=kubernetes/helm/demo-crm/values_override.yaml \
 MONGODB_NAMESPACE=default \
 MONGODB_RELEASE_NAME=demo-mongo \
 MONGODB_CHART=bitnami/mongodb \
@@ -70,12 +78,13 @@ MONGODB_CHART=bitnami/mongodb \
 ### What `deploy.sh` does
 - Validates `kubectl` and `helm` and checks required files
 - Creates namespaces if missing
+- Builds app chart dependencies with `helm dependency build`
 - Creates Secrets from `.env` files
 - Installs/upgrades MongoDB with Helm using `kubernetes/helm/mongodb_values_override.yaml`
   (and `kubernetes/helm/mongodb_values.yaml` if present)
-- Applies app ConfigMap, Deployment, Service, and Ingress
+- Installs/upgrades the app Helm chart in `kubernetes/helm/demo-crm`
 - Waits for an Ingress address and pauses until DNS is updated
-- Installs cert-manager if missing, applies the ClusterIssuer, and re-applies Ingress
+- Installs cert-manager if missing and re-runs the app chart to create the ClusterIssuer
 - Prints rollout and service/ingress status
 
 ## Tear down (script)
@@ -84,13 +93,14 @@ MONGODB_CHART=bitnami/mongodb \
 ```
 
 Notes:
-- Deletes app manifests, cert-manager release + namespace, MongoDB Helm release,
+- Uninstalls the app Helm release, cert-manager release + namespace, MongoDB Helm release,
   MongoDB StatefulSet/PVCs, and both Secrets.
-- App resources are deleted in the current kubectl namespace. If you deployed to
-  a custom namespace, set your context namespace first or delete manually.
+- Set `APP_NAMESPACE` and `MONGODB_NAMESPACE` if you deployed outside the defaults.
 
 ## Manual steps (optional)
 ### 1) Install MongoDB with Helm
+Skip this step if you set `mongodb.enabled=true` in the app chart.
+
 Create the Secret from the `.env` file:
 ```bash
 kubectl create secret generic demo-mongo-auth \
@@ -119,11 +129,15 @@ kubectl create secret generic demo-crm-mongodb-uri \
 ```
 
 ### 3) Deploy the app
+If you enable chart dependencies (`mongodb.enabled`, `certManager.enabled`, `nginxIngress.enabled`)
+or the `charts/` directory is empty, run `helm dependency build kubernetes/helm/demo-crm`
+or add `--dependency-update` to the install command.
+
 ```bash
-kubectl apply -n <app-namespace> -f kubernetes/manifests/app/configmap.yaml
-kubectl apply -n <app-namespace> -f kubernetes/manifests/app/deployment.yaml
-kubectl apply -n <app-namespace> -f kubernetes/manifests/app/service.yaml
-kubectl apply -n <app-namespace> -f kubernetes/manifests/app/ingress.yaml
+helm upgrade --install demo-crm kubernetes/helm/demo-crm \
+  -n <app-namespace> \
+  --create-namespace \
+  --set appMongo.uri.secretName=demo-crm-mongodb-uri
 ```
 
 Wait for the Deployment:
@@ -133,7 +147,8 @@ kubectl get pods -l app=demo-crm -n <app-namespace> -o wide
 ```
 
 ### 4) cert-manager / TLS
-If you are not using the script, install cert-manager and apply the ClusterIssuer:
+If you are not using the script, install cert-manager and enable the ClusterIssuer.
+Skip the install step if you set `certManager.enabled=true` in the app chart.
 ```bash
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
@@ -145,8 +160,9 @@ helm install cert-manager jetstack/cert-manager \
   --set installCRDs=true
 
 kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
-kubectl apply -f kubernetes/manifests/app/clusterissuer.yaml
-kubectl apply -n <app-namespace> -f kubernetes/manifests/app/ingress.yaml
+helm upgrade --install demo-crm kubernetes/helm/demo-crm \
+  -n <app-namespace> \
+  --set clusterIssuer.enabled=true
 ```
 
 ### 5) Access the application

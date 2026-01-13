@@ -1,0 +1,21 @@
+apiVersion: v2
+name: demo-crm
+description: Demo CRM Next.js app
+type: application
+version: 0.1.0
+appVersion: "latest"
+dependencies:
+  - name: mongodb
+    version: ">=0.0.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mongodb.enabled
+  - name: cert-manager
+    version: ">=0.0.0"
+    repository: "https://charts.jetstack.io"
+    alias: certManager
+    condition: certManager.enabled
+  - name: nginx-ingress
+    version: ">=0.0.0"
+    repository: "https://helm.nginx.com/stable"
+    alias: nginxIngress
+    condition: nginxIngress.enabled

@@ -6,8 +6,14 @@ MONGODB_RELEASE_NAME="${MONGODB_RELEASE_NAME:-demo-mongo}"
 MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-default}"
 MONGODB_CHART="${MONGODB_CHART:-bitnami/mongodb}"
 
-APP_NAME="demo-crm"
-INGRESS_NAME="demo-crm"
+APP_RELEASE_NAME="${APP_RELEASE_NAME:-demo-crm}"
+APP_CHART_PATH="${APP_CHART_PATH:-kubernetes/helm/demo-crm}"
+APP_VALUES_FILE="${APP_VALUES_FILE:-}"
+APP_VALUES_OVERRIDE_FILE="${APP_VALUES_OVERRIDE_FILE:-kubernetes/helm/demo-crm/values_override.yaml}"
+APP_DEPENDENCIES_BUILT="${APP_DEPENDENCIES_BUILT:-false}"
+APP_RESOURCE_NAME="${APP_RESOURCE_NAME:-${APP_RELEASE_NAME}}"
+APP_NAME="${APP_RESOURCE_NAME}"
+INGRESS_NAME="${INGRESS_NAME:-${APP_RESOURCE_NAME}}"
 
 MONGODB_VALUES_FILE="kubernetes/helm/mongodb_values.yaml"
 MONGODB_VALUES_OVERRIDE_FILE="kubernetes/helm/mongodb_values_override.yaml"
@@ -20,11 +26,8 @@ MONGODB_URI_SECRET_NAME="demo-crm-mongodb-uri"
 REQUIRED_FILES=(
   "${MONGODB_AUTH_ENV_FILE}"
   "${MONGODB_URI_ENV_FILE}"
-  "kubernetes/manifests/app/configmap.yaml"
-  "kubernetes/manifests/app/deployment.yaml"
-  "kubernetes/manifests/app/service.yaml"
-  "kubernetes/manifests/app/ingress.yaml"
-  "kubernetes/manifests/app/clusterissuer.yaml"
+  "${APP_CHART_PATH}/Chart.yaml"
+  "${APP_CHART_PATH}/values.yaml"
 )
 
 log() {
@@ -61,6 +64,9 @@ check_required_files() {
       die "Missing required file: ${file}"
     fi
   done
+  if [ -n "${APP_VALUES_FILE}" ] && [ ! -f "${APP_VALUES_FILE}" ]; then
+    die "Missing app values file: ${APP_VALUES_FILE}"
+  fi
 }
 
 ensure_namespaces() {
@@ -92,14 +98,42 @@ install_mongodb() {
   helm upgrade --install "${MONGODB_RELEASE_NAME}" "${MONGODB_CHART}" \
     -n "${MONGODB_NAMESPACE}" \
     --create-namespace \
-    "${values_args[@]}"
+    "${values_args[@]+"${values_args[@]}"}"
 }
 
-apply_app_manifests() {
-  kubectl apply -n "${APP_NAMESPACE}" -f "kubernetes/manifests/app/configmap.yaml"
-  kubectl apply -n "${APP_NAMESPACE}" -f "kubernetes/manifests/app/deployment.yaml"
-  kubectl apply -n "${APP_NAMESPACE}" -f "kubernetes/manifests/app/service.yaml"
-  kubectl apply -n "${APP_NAMESPACE}" -f "kubernetes/manifests/app/ingress.yaml"
+build_app_dependencies() {
+  if [ "${APP_DEPENDENCIES_BUILT}" = "true" ]; then
+    return
+  fi
+
+  helm dependency build "${APP_CHART_PATH}"
+  APP_DEPENDENCIES_BUILT="true"
+}
+
+install_app_chart() {
+  local -a values_args=()
+  local -a set_args=()
+
+  build_app_dependencies
+
+  if [ -n "${APP_VALUES_FILE}" ] && [ -f "${APP_VALUES_FILE}" ]; then
+    values_args+=(-f "${APP_VALUES_FILE}")
+  fi
+  if [ -f "${APP_VALUES_OVERRIDE_FILE}" ]; then
+    values_args+=(-f "${APP_VALUES_OVERRIDE_FILE}")
+  fi
+
+  if [ -n "${APP_RESOURCE_NAME}" ]; then
+    set_args+=(--set-string "fullnameOverride=${APP_RESOURCE_NAME}")
+  fi
+  set_args+=(--set-string "appMongo.uri.secretName=${MONGODB_URI_SECRET_NAME}")
+
+  helm upgrade --install "${APP_RELEASE_NAME}" "${APP_CHART_PATH}" \
+    -n "${APP_NAMESPACE}" \
+    --create-namespace \
+    "${values_args[@]+"${values_args[@]}"}" \
+    "${set_args[@]+"${set_args[@]}"}" \
+    "$@"
 }
 
 wait_for_ingress_address() {
@@ -173,7 +207,7 @@ main() {
   ensure_namespaces
   apply_secrets
   install_mongodb
-  apply_app_manifests
+  install_app_chart --set clusterIssuer.enabled=false
 
   local ingress_address
   local ingress_host
@@ -187,8 +221,7 @@ main() {
 
   confirm_dns "${ingress_address}"
   ensure_cert_manager
-  kubectl apply -f "kubernetes/manifests/app/clusterissuer.yaml"
-  kubectl apply -n "${APP_NAMESPACE}" -f "kubernetes/manifests/app/ingress.yaml"
+  install_app_chart --set clusterIssuer.enabled=true
   final_status
 
   log "Done. If you're using Ingress, check the Ingress address/hostname for access."

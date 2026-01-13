@@ -1,23 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-
+APP_NAMESPACE="${APP_NAMESPACE:-default}"
+APP_RELEASE_NAME="${APP_RELEASE_NAME:-demo-crm}"
+MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-default}"
 MONGODB_RELEASE_NAME="${MONGODB_RELEASE_NAME:-demo-mongo}"
 
-APP_MANIFESTS=(
-  "kubernetes/manifests/app/service.yaml"
-  "kubernetes/manifests/app/deployment.yaml"
-  "kubernetes/manifests/app/configmap.yaml"
-  "kubernetes/manifests/app/ingress.yaml"
-  "kubernetes/manifests/app/clusterissuer.yaml"
-)
-
-APP_SECRETS=(
-  "demo-crm-mongodb-uri"
-  "demo-mongo-auth"
-)
+MONGODB_AUTH_SECRET_NAME="${MONGODB_AUTH_SECRET_NAME:-demo-mongo-auth}"
+MONGODB_URI_SECRET_NAME="${MONGODB_URI_SECRET_NAME:-demo-crm-mongodb-uri}"
 
 log() {
   printf '%s\n' "$*"
@@ -40,11 +30,9 @@ require_kube_context() {
   fi
 }
 
-delete_app_manifests() {
-  local manifest
-  for manifest in "${APP_MANIFESTS[@]}"; do
-    kubectl delete -f "${ROOT_DIR}/${manifest}" --ignore-not-found
-  done
+uninstall_app_chart() {
+  helm uninstall "${APP_RELEASE_NAME}" -n "${APP_NAMESPACE}" --ignore-not-found
+  kubectl delete secret "${MONGODB_URI_SECRET_NAME}" -n "${APP_NAMESPACE}" --ignore-not-found
 }
 
 uninstall_cert_manager() {
@@ -53,13 +41,14 @@ uninstall_cert_manager() {
 }
 
 uninstall_mongodb() {
-  helm uninstall "${MONGODB_RELEASE_NAME}" --ignore-not-found
+  helm uninstall "${MONGODB_RELEASE_NAME}" -n "${MONGODB_NAMESPACE}" --ignore-not-found
   kubectl delete statefulset \
     -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" \
     -l "app.kubernetes.io/name=mongodb" \
+    -n "${MONGODB_NAMESPACE}" \
     --ignore-not-found --wait=false
-  kubectl delete secret "${APP_SECRETS[@]}" --ignore-not-found
-  kubectl delete pvc -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" --ignore-not-found --wait=false
+  kubectl delete secret "${MONGODB_AUTH_SECRET_NAME}" -n "${MONGODB_NAMESPACE}" --ignore-not-found
+  kubectl delete pvc -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" -n "${MONGODB_NAMESPACE}" --ignore-not-found --wait=false
 }
 
 main() {
@@ -68,7 +57,7 @@ main() {
   require_kube_context
   log "Using kube context: $(kubectl config current-context)"
 
-  delete_app_manifests
+  uninstall_app_chart
   uninstall_cert_manager
   uninstall_mongodb
 

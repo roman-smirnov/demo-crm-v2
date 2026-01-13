@@ -1,0 +1,11 @@
+Demo CRM chart installed.
+
+To check the Ingress:
+  kubectl get ingress -n {{ .Release.Namespace }} {{ include "demo-crm.fullname" . }}
+
+If Ingress is disabled, check the Service:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "demo-crm.fullname" . }}
+
+Ensure the MongoDB URI secret exists:
+  Name: {{ .Values.appMongo.uri.secretName }}
+  Key: {{ .Values.appMongo.uri.key }}

@@ -1,0 +1,126 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: pwstaging/demo-crm
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+containerPort: 3000
+
+strategy:
+  maxSurge: 1
+  maxUnavailable: 0
+
+config:
+  LOG_LEVEL: info
+  PERSISTENCE: "true"
+
+appMongo:
+  uri:
+    secretName: demo-crm-mongodb-uri
+    key: MONGODB_URI
+    create: false
+    value: ""
+
+mongodb:
+  enabled: false
+  architecture: replicaset
+  replicaCount: 2
+  auth:
+    enabled: true
+    existingSecret: demo-mongo-auth
+    username: demo_crm_user
+    database: demo_crm
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests:
+      cpu: 80m
+      memory: 512Mi
+    limits:
+      cpu: 400m
+      memory: 768Mi
+  arbiter:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+certManager:
+  enabled: false
+  installCRDs: true
+
+nginxIngress:
+  enabled: false
+
+readinessProbe:
+  enabled: true
+  path: /
+  port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+
+livenessProbe:
+  enabled: true
+  path: /
+  port: http
+  initialDelaySeconds: 20
+  periodSeconds: 15
+  timeoutSeconds: 2
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.org/redirect-to-https: "false"
+  hosts:
+    - host: romans-crm.ddns.net
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: demo-crm-tls
+      hosts:
+        - romans-crm.ddns.net
+
+clusterIssuer:
+  enabled: false
+  name: letsencrypt-prod
+  email: roman.smirnv@gmail.com
+  server: https://acme-v02.api.letsencrypt.org/directory
+  privateKeySecretName: letsencrypt-prod
+  solverIngressName: ""
