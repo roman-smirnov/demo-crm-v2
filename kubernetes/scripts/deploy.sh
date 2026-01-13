@@ -12,9 +12,14 @@ INGRESS_NAME="demo-crm"
 MONGODB_VALUES_FILE="kubernetes/helm/mongodb_values.yaml"
 MONGODB_VALUES_OVERRIDE_FILE="kubernetes/helm/mongodb_values_override.yaml"
 
+MONGODB_AUTH_ENV_FILE="creds/mongodb_auth.env"
+MONGODB_URI_ENV_FILE="creds/mongo.env"
+MONGODB_AUTH_SECRET_NAME="demo-mongo-auth"
+MONGODB_URI_SECRET_NAME="demo-crm-mongodb-uri"
+
 REQUIRED_FILES=(
-  "creds/secret-mongodb-auth.yaml"
-  "creds/secret-mongodb-uri.yaml"
+  "${MONGODB_AUTH_ENV_FILE}"
+  "${MONGODB_URI_ENV_FILE}"
   "kubernetes/manifests/app/configmap.yaml"
   "kubernetes/manifests/app/deployment.yaml"
   "kubernetes/manifests/app/service.yaml"
@@ -64,8 +69,12 @@ ensure_namespaces() {
 }
 
 apply_secrets() {
-  kubectl apply -n "${MONGODB_NAMESPACE}" -f "creds/secret-mongodb-auth.yaml"
-  kubectl apply -n "${APP_NAMESPACE}" -f "creds/secret-mongodb-uri.yaml"
+  kubectl create secret generic "${MONGODB_AUTH_SECRET_NAME}" \
+    --from-env-file="${MONGODB_AUTH_ENV_FILE}" \
+    --dry-run=client -o yaml | kubectl apply -n "${MONGODB_NAMESPACE}" -f -
+  kubectl create secret generic "${MONGODB_URI_SECRET_NAME}" \
+    --from-env-file="${MONGODB_URI_ENV_FILE}" \
+    --dry-run=client -o yaml | kubectl apply -n "${APP_NAMESPACE}" -f -
 }
 
 install_mongodb() {
