@@ -6,34 +6,73 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 MONGODB_RELEASE_NAME="${MONGODB_RELEASE_NAME:-demo-mongo}"
 
-if ! command -v kubectl >/dev/null 2>&1; then
-  echo "kubectl is required but not found in PATH." >&2
+APP_MANIFESTS=(
+  "kubernetes/manifests/app/service.yaml"
+  "kubernetes/manifests/app/deployment.yaml"
+  "kubernetes/manifests/app/configmap.yaml"
+  "kubernetes/manifests/app/ingress.yaml"
+  "kubernetes/manifests/app/clusterissuer.yaml"
+)
+
+APP_SECRETS=(
+  "demo-crm-mongodb-uri"
+  "demo-mongo-auth"
+)
+
+log() {
+  printf '%s\n' "$*"
+}
+
+die() {
+  printf '%s\n' "$*" >&2
   exit 1
-fi
+}
 
-if ! command -v helm >/dev/null 2>&1; then
-  echo "helm is required but not found in PATH." >&2
-  exit 1
-fi
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    die "$1 is required but not found in PATH."
+  fi
+}
 
-echo "Using kube context: $(kubectl config current-context)"
+require_kube_context() {
+  if ! kubectl config current-context >/dev/null 2>&1; then
+    die "kubectl context is not set. Run 'kubectl config use-context'."
+  fi
+}
 
-kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/service.yaml" --ignore-not-found
-kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/deployment.yaml" --ignore-not-found
-kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/configmap.yaml" --ignore-not-found
-kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/ingress.yaml" --ignore-not-found
-kubectl delete -f "${ROOT_DIR}/kubernetes/manifests/app/clusterissuer.yaml" --ignore-not-found
-helm uninstall cert-manager -n cert-manager --ignore-not-found
+delete_app_manifests() {
+  local manifest
+  for manifest in "${APP_MANIFESTS[@]}"; do
+    kubectl delete -f "${ROOT_DIR}/${manifest}" --ignore-not-found
+  done
+}
 
-kubectl delete namespace cert-manager --ignore-not-found
+uninstall_cert_manager() {
+  helm uninstall cert-manager -n cert-manager --ignore-not-found
+  kubectl delete namespace cert-manager --ignore-not-found
+}
 
-helm uninstall "${MONGODB_RELEASE_NAME}" --ignore-not-found
+uninstall_mongodb() {
+  helm uninstall "${MONGODB_RELEASE_NAME}" --ignore-not-found
+  kubectl delete statefulset \
+    -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" \
+    -l "app.kubernetes.io/name=mongodb" \
+    --ignore-not-found --wait=false
+  kubectl delete secret "${APP_SECRETS[@]}" --ignore-not-found
+  kubectl delete pvc -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" --ignore-not-found --wait=false
+}
 
-kubectl delete statefulset \
-  -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" \
-  -l "app.kubernetes.io/name=mongodb" \
-  --ignore-not-found --wait=false
-kubectl delete secret demo-crm-mongodb-uri demo-mongo-auth --ignore-not-found
-kubectl delete pvc -l "app.kubernetes.io/instance=${MONGODB_RELEASE_NAME}" --ignore-not-found --wait=false
+main() {
+  require_command kubectl
+  require_command helm
+  require_kube_context
+  log "Using kube context: $(kubectl config current-context)"
 
-echo "Done."
+  delete_app_manifests
+  uninstall_cert_manager
+  uninstall_mongodb
+
+  log "Done."
+}
+
+main "$@"
