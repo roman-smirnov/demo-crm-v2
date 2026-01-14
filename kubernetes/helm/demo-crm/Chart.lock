@@ -5,8 +5,11 @@ dependencies:
 - name: cert-manager
   repository: https://charts.jetstack.io
   version: v1.19.2
+- name: sealed-secrets
+  repository: https://bitnami-labs.github.io/sealed-secrets
+  version: 2.18.0
 - name: nginx-ingress
   repository: https://helm.nginx.com/stable
   version: 2.4.1
-digest: sha256:105d22dd9c4c385e89de32deba9e4d65e7187f053b44c688da1b10cc974014b8
-generated: "2026-01-13T22:51:51.024452+02:00"
+digest: sha256:9e11b7d45e482596d3e2122cf4e32ce59b7db795e465d78e91a78f6c96b45f76
+generated: "2026-01-13T23:33:29.653916+02:00"

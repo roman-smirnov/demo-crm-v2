@@ -93,7 +93,7 @@ install_mongodb() {
     values_args+=(-f "${MONGODB_VALUES_OVERRIDE_FILE}")
   fi
 
-  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
   helm repo update
   helm upgrade --install "${MONGODB_RELEASE_NAME}" "${MONGODB_CHART}" \
     -n "${MONGODB_NAMESPACE}" \
@@ -105,6 +105,11 @@ build_app_dependencies() {
   if [ "${APP_DEPENDENCIES_BUILT}" = "true" ]; then
     return
   fi
+
+  helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
+  helm repo add jetstack https://charts.jetstack.io --force-update
+  helm repo add nginx-stable https://helm.nginx.com/stable --force-update
+  helm repo add bitnami-labs https://bitnami-labs.github.io/sealed-secrets --force-update
 
   helm dependency build "${APP_CHART_PATH}"
   APP_DEPENDENCIES_BUILT="true"
@@ -187,7 +192,7 @@ ensure_cert_manager() {
 
   if ! kubectl get deployment cert-manager -n cert-manager >/dev/null 2>&1; then
     kubectl create namespace cert-manager >/dev/null 2>&1 || true
-    helm repo add jetstack https://charts.jetstack.io
+    helm repo add jetstack https://charts.jetstack.io --force-update
     helm repo update
 
     local -a install_args=(--namespace cert-manager)

@@ -49,6 +49,57 @@ Secrets created:
 - `demo-mongo-auth` in `${MONGODB_NAMESPACE}` (used by the Helm chart)
 - `demo-crm-mongodb-uri` in `${APP_NAMESPACE}` (used by the app chart)
 
+## Sealed Secrets (optional)
+Use Sealed Secrets to keep MongoDB credentials out of plaintext Secrets. The app chart can render
+SealedSecret resources for the MongoDB auth secret and the app URI secret.
+
+Prereqs:
+- Sealed Secrets controller installed (set `sealedSecrets.enabled=true` and run
+  `helm dependency build kubernetes/helm/demo-crm`, or install it separately).
+- If you use the chart dependency, add the repo once:
+  `helm repo add bitnami-labs https://bitnami-labs.github.io/sealed-secrets`.
+- `kubeseal` CLI installed.
+
+Generate encrypted values (use the Helm release namespace when using the chart dependency):
+```bash
+kubectl create secret generic demo-mongo-auth \
+  --from-env-file=creds/mongodb_auth.env \
+  --dry-run=client -o yaml \
+  | kubeseal --format yaml --namespace <app-namespace> --name demo-mongo-auth \
+  > /tmp/demo-mongo-auth-sealed.yaml
+
+kubectl create secret generic demo-crm-mongodb-uri \
+  --from-env-file=creds/mongo.env \
+  --dry-run=client -o yaml \
+  | kubeseal --format yaml --namespace <app-namespace> --name demo-crm-mongodb-uri \
+  > /tmp/demo-crm-mongodb-uri-sealed.yaml
+```
+
+Copy `spec.encryptedData` into your Helm values and enable Sealed Secrets:
+```yaml
+sealedSecrets:
+  enabled: true
+
+appMongo:
+  uri:
+    create: true
+    sealedValue: "<spec.encryptedData.MONGODB_URI>"
+
+mongodbAuth:
+  create: true
+  secretName: demo-mongo-auth
+  sealedData:
+    mongodb-root-password: "<spec.encryptedData.mongodb-root-password>"
+    mongodb-passwords: "<spec.encryptedData.mongodb-passwords>"
+    mongodb-replica-set-key: "<spec.encryptedData.mongodb-replica-set-key>"
+```
+
+Notes:
+- Keep `mongodb.auth.existingSecret` aligned with `mongodbAuth.secretName`.
+- Use `mongodbAuth.create` only when MongoDB is deployed in the same namespace.
+- If you use sealed secrets, skip the plaintext `kubectl create secret` steps (or the `deploy.sh`
+  secret creation step).
+
 ## Quick start (script)
 1. Update `kubernetes/helm/demo-crm/values.yaml` (or create `kubernetes/helm/demo-crm/values_override.yaml`).
 2. Fill `creds/mongodb_auth.env` and `creds/mongo.env`.

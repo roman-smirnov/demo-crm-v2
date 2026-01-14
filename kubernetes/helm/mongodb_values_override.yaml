@@ -1,6 +1,31 @@
 architecture: replicaset
 replicaCount: 2
 
+image:
+  tag: "sha256-2ccb2893126f21189d83a4b44a2cfa3f67bbba05cf0b1c08295527d71ab4a9a4"
+  digest: "sha256:2ccb2893126f21189d83a4b44a2cfa3f67bbba05cf0b1c08295527d71ab4a9a4"
+metrics:
+  image:
+    tag: "sha256-3fe91087a95ade35080c6b957fb95cbebe79ae457810a2d8fe899853bcaca2f9"
+    digest: "sha256:3fe91087a95ade35080c6b957fb95cbebe79ae457810a2d8fe899853bcaca2f9"
+tls:
+  image:
+    tag: "sha256-5224adfa8872b472d200df27d73940f21b6b029e8263586a049c0955ae781c35"
+    digest: "sha256:5224adfa8872b472d200df27d73940f21b6b029e8263586a049c0955ae781c35"
+externalAccess:
+  autoDiscovery:
+    image:
+      tag: "sha256-554ab88b1858e8424c55de37ad417b16f2a0e65d1607aa0f3fe3ce9b9f10b131"
+      digest: "sha256:554ab88b1858e8424c55de37ad417b16f2a0e65d1607aa0f3fe3ce9b9f10b131"
+  dnsCheck:
+    image:
+      tag: "sha256-bf64d9eb9cf378e2698d19d9ffe812d77eafab20829c8bad792381c3c66ddce8"
+      digest: "sha256:bf64d9eb9cf378e2698d19d9ffe812d77eafab20829c8bad792381c3c66ddce8"
+volumePermissions:
+  image:
+    tag: "sha256-bf64d9eb9cf378e2698d19d9ffe812d77eafab20829c8bad792381c3c66ddce8"
+    digest: "sha256:bf64d9eb9cf378e2698d19d9ffe812d77eafab20829c8bad792381c3c66ddce8"
+
 # empty password will be sorted as a secret by k8s
 auth:
   enabled: true
