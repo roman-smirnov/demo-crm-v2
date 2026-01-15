@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-crm
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/roman-smirnov/demo-crm-app
+    targetRevision: main
+    path: kubernetes/helm/demo-crm
+    helm:
+      releaseName: demo-crm
+      values: |
+        ingress:
+          enabled: true
+          className: nginx
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/ssl-redirect: "false"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+            nginx.org/redirect-to-https: "false"
+          hosts:
+            - host: romansmirnov.xyz
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: demo-crm-tls
+              hosts:
+                - romansmirnov.xyz
+        clusterIssuer:
+          enabled: false
+          name: letsencrypt-prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
