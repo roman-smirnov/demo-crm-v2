@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAMESPACE="${APP_NAMESPACE:-default}"
+APP_NAMESPACE="${APP_NAMESPACE:-app}"
 APP_NAME="${APP_NAME:-demo-crm}"
 JOB_NAME="${JOB_NAME:-demo-crm-load-test}"
 DURATION="${DURATION:-1m}"
@@ -16,18 +16,18 @@ usage() {
 Usage: load_test.sh [--help]
 
 Environment variables:
-  APP_NAMESPACE=default
+  APP_NAMESPACE=app
   APP_NAME=demo-crm
   JOB_NAME=demo-crm-load-test
   DURATION=1m
   CONCURRENCY=25
-  TARGET_URL=http://demo-crm.default.svc.cluster.local/
+  TARGET_URL=http://demo-crm.app.svc.cluster.local/
   HEY_IMAGE=demisto/rakyll-hey:1.0.0.108484
   WAIT_TIMEOUT=5m
   POLL_INTERVAL=5
 
 Examples:
-  APP_NAMESPACE=default ./kubernetes/scripts/load_test.sh
+  APP_NAMESPACE=app ./kubernetes/scripts/load_test.sh
   DURATION=1m CONCURRENCY=25 ./kubernetes/scripts/load_test.sh
   TARGET_URL=https://your-hostname.example.com/ ./kubernetes/scripts/load_test.sh
   HEY_IMAGE=demisto/rakyll-hey:1.0.0.108484 ./kubernetes/scripts/load_test.sh

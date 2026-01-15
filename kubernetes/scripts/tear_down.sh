@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAMESPACE="${APP_NAMESPACE:-default}"
+APP_NAMESPACE="${APP_NAMESPACE:-app}"
 APP_RELEASE_NAME="${APP_RELEASE_NAME:-demo-crm}"
-MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-default}"
+MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-mongo}"
 MONGODB_RELEASE_NAME="${MONGODB_RELEASE_NAME:-demo-mongo}"
+CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE:-cert}"
 
 MONGODB_AUTH_SECRET_NAME="${MONGODB_AUTH_SECRET_NAME:-demo-mongo-auth}"
 MONGODB_URI_SECRET_NAME="${MONGODB_URI_SECRET_NAME:-demo-crm-mongodb-uri}"
@@ -36,8 +37,8 @@ uninstall_app_chart() {
 }
 
 uninstall_cert_manager() {
-  helm uninstall cert-manager -n cert-manager --ignore-not-found
-  kubectl delete namespace cert-manager --ignore-not-found
+  helm uninstall cert-manager -n "${CERT_MANAGER_NAMESPACE}" --ignore-not-found
+  kubectl delete namespace "${CERT_MANAGER_NAMESPACE}" --ignore-not-found
 }
 
 uninstall_mongodb() {

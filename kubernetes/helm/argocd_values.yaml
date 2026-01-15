@@ -1,0 +1,23 @@
+configs:
+  cm:
+    url: https://argocd.romansmirnov.xyz
+  params:
+    server.insecure: "true"
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: argocd.romansmirnov.xyz
+    annotations:
+      acme.cert-manager.io/http01-edit-in-place: "true"
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+      nginx.org/redirect-to-https: "false"
+    path: /
+    pathType: Prefix
+    tls:
+      - secretName: argocd-tls
+        hosts:
+          - argocd.romansmirnov.xyz

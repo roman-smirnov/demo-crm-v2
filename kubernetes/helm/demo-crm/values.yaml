@@ -154,14 +154,14 @@ ingress:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
     nginx.org/redirect-to-https: "false"
   hosts:
-    - host: romans-crm.ddns.net
+    - host: romansmirnov.xyz
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: demo-crm-tls
       hosts:
-        - romans-crm.ddns.net
+        - romansmirnov.xyz
 
 clusterIssuer:
   enabled: false
@@ -170,3 +170,4 @@ clusterIssuer:
   server: https://acme-v02.api.letsencrypt.org/directory
   privateKeySecretName: letsencrypt-prod
   solverIngressName: ""
+  solverIngressClassName: nginx

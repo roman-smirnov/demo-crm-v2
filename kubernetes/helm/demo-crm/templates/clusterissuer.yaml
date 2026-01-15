@@ -14,5 +14,9 @@ spec:
     solvers:
       - http01:
           ingress:
+            {{- if .Values.clusterIssuer.solverIngressClassName }}
+            ingressClassName: {{ .Values.clusterIssuer.solverIngressClassName }}
+            {{- else }}
             name: {{ default (include "demo-crm.fullname" .) .Values.clusterIssuer.solverIngressName }}
+            {{- end }}
 {{- end }}

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAMESPACE="${APP_NAMESPACE:-default}"
+APP_NAMESPACE="${APP_NAMESPACE:-app}"
 MONGODB_RELEASE_NAME="${MONGODB_RELEASE_NAME:-demo-mongo}"
-MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-default}"
+MONGODB_NAMESPACE="${MONGODB_NAMESPACE:-mongo}"
 MONGODB_CHART="${MONGODB_CHART:-bitnami/mongodb}"
+CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE:-cert}"
 
 APP_RELEASE_NAME="${APP_RELEASE_NAME:-demo-crm}"
 APP_CHART_PATH="${APP_CHART_PATH:-kubernetes/helm/demo-crm}"
@@ -57,6 +58,49 @@ require_cluster_access() {
   fi
 }
 
+helm_repo_update_with_retry() {
+  local repo="$1"
+  local max_attempts="${2:-3}"
+  local delay_seconds="${3:-2}"
+  local attempt=1
+
+  while true; do
+    if helm repo update "${repo}"; then
+      return 0
+    fi
+
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      die "Failed to update Helm repo ${repo} after ${max_attempts} attempts."
+    fi
+
+    log "Helm repo update failed for ${repo}. Retrying in ${delay_seconds}s... (${attempt}/${max_attempts})"
+    sleep "${delay_seconds}"
+    attempt=$((attempt + 1))
+    delay_seconds=$((delay_seconds * 2))
+  done
+}
+
+helm_repo_update_all_with_retry() {
+  local max_attempts="${1:-3}"
+  local delay_seconds="${2:-2}"
+  local attempt=1
+
+  while true; do
+    if helm repo update; then
+      return 0
+    fi
+
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      die "Failed to update Helm repositories after ${max_attempts} attempts."
+    fi
+
+    log "Helm repo update failed. Retrying in ${delay_seconds}s... (${attempt}/${max_attempts})"
+    sleep "${delay_seconds}"
+    attempt=$((attempt + 1))
+    delay_seconds=$((delay_seconds * 2))
+  done
+}
+
 check_required_files() {
   local file
   for file in "${REQUIRED_FILES[@]}"; do
@@ -94,7 +138,7 @@ install_mongodb() {
   fi
 
   helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
-  helm repo update
+  helm_repo_update_with_retry bitnami 3 2
   helm upgrade --install "${MONGODB_RELEASE_NAME}" "${MONGODB_CHART}" \
     -n "${MONGODB_NAMESPACE}" \
     --create-namespace \
@@ -110,6 +154,8 @@ build_app_dependencies() {
   helm repo add jetstack https://charts.jetstack.io --force-update
   helm repo add nginx-stable https://helm.nginx.com/stable --force-update
   helm repo add bitnami-labs https://bitnami-labs.github.io/sealed-secrets --force-update
+
+  helm_repo_update_all_with_retry 3 2
 
   helm dependency build "${APP_CHART_PATH}"
   APP_DEPENDENCIES_BUILT="true"
@@ -190,12 +236,12 @@ ensure_cert_manager() {
     return
   fi
 
-  if ! kubectl get deployment cert-manager -n cert-manager >/dev/null 2>&1; then
-    kubectl create namespace cert-manager >/dev/null 2>&1 || true
+  if ! kubectl get deployment cert-manager -n "${CERT_MANAGER_NAMESPACE}" >/dev/null 2>&1; then
+    kubectl create namespace "${CERT_MANAGER_NAMESPACE}" >/dev/null 2>&1 || true
     helm repo add jetstack https://charts.jetstack.io --force-update
-    helm repo update
+    helm_repo_update_with_retry jetstack 3 2
 
-    local -a install_args=(--namespace cert-manager)
+    local -a install_args=(--namespace "${CERT_MANAGER_NAMESPACE}")
     if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
       install_args+=(--set installCRDs=false --set crds.enabled=false)
     else
@@ -203,7 +249,7 @@ ensure_cert_manager() {
     fi
 
     helm upgrade --install cert-manager jetstack/cert-manager "${install_args[@]}"
-    kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
+    kubectl wait --for=condition=Available deployment/cert-manager -n "${CERT_MANAGER_NAMESPACE}" --timeout=120s
   fi
 }
 

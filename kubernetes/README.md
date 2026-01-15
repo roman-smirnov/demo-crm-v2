@@ -1,6 +1,6 @@
 ![Topology](TOPOLOGY_GENERATED.jpg)
 
-# Kubernetes Deployment (demo-crm)
+# Kubernetes Deployment
 
 This repo deploys:
 - `demo-crm` (Next.js app) via the Helm chart in `kubernetes/helm/demo-crm`
@@ -49,7 +49,7 @@ Secrets created:
 - `demo-mongo-auth` in `${MONGODB_NAMESPACE}` (used by the Helm chart)
 - `demo-crm-mongodb-uri` in `${APP_NAMESPACE}` (used by the app chart)
 
-## Sealed Secrets (optional)
+## Sealed Secrets
 Use Sealed Secrets to keep MongoDB credentials out of plaintext Secrets. The app chart can render
 SealedSecret resources for the MongoDB auth secret and the app URI secret.
 
@@ -60,12 +60,12 @@ Prereqs:
   `helm repo add bitnami-labs https://bitnami-labs.github.io/sealed-secrets`.
 - `kubeseal` CLI installed.
 
-Generate encrypted values (use the Helm release namespace when using the chart dependency):
+Generate encrypted values (use the MongoDB namespace for `demo-mongo-auth`, and the app namespace for `demo-crm-mongodb-uri`):
 ```bash
 kubectl create secret generic demo-mongo-auth \
   --from-env-file=creds/mongodb_auth.env \
   --dry-run=client -o yaml \
-  | kubeseal --format yaml --namespace <app-namespace> --name demo-mongo-auth \
+  | kubeseal --format yaml --namespace <mongodb-namespace> --name demo-mongo-auth \
   > /tmp/demo-mongo-auth-sealed.yaml
 
 kubectl create secret generic demo-crm-mongodb-uri \
@@ -116,15 +116,16 @@ DNS_CONFIRM=y ./kubernetes/scripts/deploy.sh
 
 Optional overrides (defaults shown):
 ```bash
-APP_NAMESPACE=default \
+APP_NAMESPACE=app \
 APP_RELEASE_NAME=demo-crm \
 APP_RESOURCE_NAME=demo-crm \
 APP_CHART_PATH=kubernetes/helm/demo-crm \
 APP_VALUES_FILE= \
 APP_VALUES_OVERRIDE_FILE=kubernetes/helm/demo-crm/values_override.yaml \
-MONGODB_NAMESPACE=default \
+MONGODB_NAMESPACE=mongo \
 MONGODB_RELEASE_NAME=demo-mongo \
 MONGODB_CHART=bitnami/mongodb \
+CERT_MANAGER_NAMESPACE=cert \
 ./kubernetes/scripts/deploy.sh
 ```
 
@@ -137,8 +138,42 @@ MONGODB_CHART=bitnami/mongodb \
   (and `kubernetes/helm/mongodb_values.yaml` if present)
 - Installs/upgrades the app Helm chart in `kubernetes/helm/demo-crm`
 - Waits for an Ingress address and pauses until DNS is updated
-- Installs cert-manager if missing and re-runs the app chart to create the ClusterIssuer
+- Installs cert-manager in the `cert` namespace if missing and re-runs the app chart to create the ClusterIssuer
 - Prints rollout and service/ingress status
+
+## Argo CD (Helm)
+Values live in `kubernetes/helm/argocd_values.yaml` (ingress host/TLS + external URL). Update the
+host if you are not using `argocd.romansmirnov.xyz`, and remove the cert-manager annotations/TLS
+section if you are not issuing certificates.
+
+Set the admin password before install (either plaintext or a pre-hashed bcrypt value):
+```bash
+# Option A: plaintext (requires htpasswd for bcrypt generation)
+printf '%s\n' 'ARGOCD_ADMIN_PASSWORD=change-me' > creds/argocd.env
+
+# Option B: pre-hashed bcrypt (no htpasswd required)
+export ARGOCD_ADMIN_PASSWORD_HASH='$2y$10$replace-with-your-bcrypt-hash'
+```
+
+Install:
+```bash
+./kubernetes/scripts/install_argocd.sh
+```
+
+Optional overrides:
+```bash
+ARGOCD_NAMESPACE=argocd \
+ARGOCD_RELEASE_NAME=argo-cd \
+ARGOCD_VALUES_FILE=kubernetes/helm/argocd_values.yaml \
+ARGOCD_VALUES_OVERRIDE_FILE= \
+ARGOCD_ADMIN_PASSWORD_FILE=creds/argocd.env \
+./kubernetes/scripts/install_argocd.sh
+```
+
+Tear down:
+```bash
+./kubernetes/scripts/tear_down_argocd.sh
+```
 
 ## Tear down (script)
 ```bash
@@ -148,7 +183,7 @@ MONGODB_CHART=bitnami/mongodb \
 Notes:
 - Uninstalls the app Helm release, cert-manager release + namespace, MongoDB Helm release,
   MongoDB StatefulSet/PVCs, and both Secrets.
-- Set `APP_NAMESPACE` and `MONGODB_NAMESPACE` if you deployed outside the defaults.
+- Set `APP_NAMESPACE`, `MONGODB_NAMESPACE`, and `CERT_MANAGER_NAMESPACE` if you deployed outside the defaults.
 
 ## Manual steps (optional)
 ### 1) Install MongoDB with Helm
@@ -201,18 +236,18 @@ kubectl get pods -l app=demo-crm -n <app-namespace> -o wide
 
 ### 4) cert-manager / TLS
 If you are not using the script, install cert-manager and enable the ClusterIssuer.
-Skip the install step if you set `cert-manager.enabled=true` in the app chart.
+Skip the install step if you set `cert-manager.enabled=true` in the app chart (this installs cert-manager in the app namespace).
 ```bash
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
 
-kubectl create namespace cert-manager
+kubectl create namespace cert
 
 helm install cert-manager jetstack/cert-manager \
-  --namespace cert-manager \
+  --namespace cert \
   --set installCRDs=true
 
-kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
+kubectl wait --for=condition=Available deployment/cert-manager -n cert --timeout=120s
 helm upgrade --install demo-crm kubernetes/helm/demo-crm \
   -n <app-namespace> \
   --set clusterIssuer.enabled=true
@@ -246,7 +281,7 @@ kubectl get svc demo-crm -n <app-namespace>
 ## Load testing (resources)
 Run a simple in-cluster load test against the Service:
 ```bash
-APP_NAMESPACE=default \
+APP_NAMESPACE=app \
 DURATION=2m \
 CONCURRENCY=50 \
 ./kubernetes/scripts/load_test.sh
@@ -261,23 +296,4 @@ TARGET_URL=https://your-hostname.example.com/ \
 Watch resource usage (requires metrics-server):
 ```bash
 kubectl top pods -n <app-namespace>
-```
-
-## Troubleshooting
-App not starting / CrashLoopBackOff:
-```bash
-kubectl describe pod -l app=demo-crm -n <app-namespace>
-kubectl logs -l app=demo-crm -n <app-namespace> --tail=200
-```
-
-Mongo connectivity issues:
-```bash
-kubectl get pods -n <mongodb-namespace> | rg demo-mongo
-kubectl logs <mongo-pod> -n <mongodb-namespace> --tail=200
-kubectl describe pod <mongo-pod> -n <mongodb-namespace>
-```
-
-Verify config injected:
-```bash
-kubectl exec -it deploy/demo-crm -n <app-namespace> -- printenv | egrep 'MONGODB_URI|PERSISTENCE|LOG_LEVEL'
 ```
